@@ -291,6 +291,7 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(S));saveFail=false}c
 function hdr(){$('#hdrNote').textContent=saveFail?'⚠ 이 브라우저에 저장할 수 없어요. [종목 관리]에서 백업 파일을 꼭 내려받으세요.':'데이터는 이 브라우저 안에만 저장돼요';
   $('#hdrNote').className=saveFail?'warn':'note'}
 function acct(id){return S.accounts.filter(function(a){return a.id===id})[0]}
+function gkey(a){return a?norm(a.name):''}
 function acctName(id){var a=acct(id);return a?a.name:'(삭제된 계좌)'}
 
 /* ========== 테마 ========== */
@@ -311,10 +312,10 @@ function inkFor(bg){var m=bg.match(/\d+/g).map(Number).map(function(v){v/=255;re
 /* ========== 계산 ========== */
 function curPrice(hd){var p=S.prices[hd.code];if(p&&p.close>0)return {v:p.close,src:'file',date:p.date};if(hd.cur>0)return {v:hd.cur,src:'cap'};return null}
 function buildItems(){
-  var v=S.settings.view,hs=v==='all'?S.holdings:S.holdings.filter(function(x){return x.accountId===v}),map={},arr=[];
+  var v=S.settings.view,va=acct(v),vk=gkey(va),hs=v==='all'||!va?S.holdings:S.holdings.filter(function(x){return gkey(acct(x.accountId))===vk}),map={},arr=[];
   hs.forEach(function(x){var k=x.code;
     if(!map[k]){map[k]={code:x.code,name:x.name,qty:0,cost:0,price:null,accts:{}};arr.push(map[k])}
-    var m=map[k];m.qty+=x.qty;m.cost+=x.qty*x.buy;m.accts[x.accountId]=1;
+    var m=map[k];m.qty+=x.qty;m.cost+=x.qty*x.buy;m.accts[gkey(acct(x.accountId))||x.accountId]=1;
     var p=curPrice(x);if(p&&(!m.price||(p.src==='file'&&m.price.src!=='file')))m.price=p;});
   var basis=S.settings.basis;
   arr.forEach(function(m){m.buy=m.cost/m.qty;m.val=m.price?m.qty*m.price.v:null;m.ret=m.price?(m.price.v-m.buy)/m.buy:null;m.pl=m.price?m.val-m.cost:null;
@@ -372,7 +373,8 @@ function renderHeat(){
     return;
   }
   if(S.settings.view!=='all'&&!acct(S.settings.view))S.settings.view='all';
-  var vopts=[['all','전체 합산']].concat(S.accounts.map(function(a){return [a.id,a.name]}));
+  var seenG={},vopts=[['all','전체 합산']];S.accounts.forEach(function(a){var k=gkey(a);if(seenG[k])return;seenG[k]=a.id;vopts.push([a.id,a.name])});
+  if(S.settings.view!=='all'){var vg=gkey(acct(S.settings.view));if(seenG[vg])S.settings.view=seenG[vg]}
   p.appendChild(h('div',{class:'card'},
     h('div',{class:'row'},
       h('div',null,h('span',{class:'lbl',text:'보기'}),seg(vopts,S.settings.view,function(v){S.settings.view=v;save();renderHeat()},'계좌 선택')),
@@ -653,7 +655,7 @@ function renderManage(){
       h('td',null,h('button',{class:'btn',type:'button',text:'종목 비우기',onclick:function(){if(confirm('"'+a.name+'"의 종목을 모두 지울까요?')){S.holdings=S.holdings.filter(function(x){return x.accountId!==a.id});save();renderAll()}}}),' ',
         h('button',{class:'btn danger',type:'button',text:'계좌 삭제',onclick:function(){if(confirm('"'+a.name+'" 계좌와 종목을 모두 지울까요?')){S.holdings=S.holdings.filter(function(x){return x.accountId!==a.id});S.accounts=S.accounts.filter(function(x){return x!==a});save();renderAll()}}}))))});
   var nn=h('input',{type:'text',placeholder:'새 계좌 이름','aria-label':'새 계좌 이름'}),nu=h('input',{type:'text',placeholder:'계좌번호(선택)','aria-label':'새 계좌번호'});
-  p.appendChild(h('div',{class:'card'},h('h2',{text:'계좌'}),
+  p.appendChild(h('div',{class:'card'},h('h2',{text:'계좌'}),h('p',{class:'note',text:'이름이 같은 계좌는 히트맵에서 하나로 합쳐서 보여줘요. 같은 종목은 수량을 더하고 매수단가는 평균으로 계산해요.'}),
     S.accounts.length?h('div',{class:'scroll'},h('table',null,h('thead',null,h('tr',null,['이름','번호','종목 수',''].map(function(t){return h('th',{text:t})}))),at)):h('div',{class:'note',text:'아직 계좌가 없어요. 캡처를 읽으면 자동으로 만들어져요.'}),
     h('div',{class:'row',style:'margin-top:10px'},nn,nu,h('button',{class:'btn',type:'button',text:'계좌 추가',onclick:function(){var n=nn.value.trim();if(!n)return;S.accounts.push({id:uid(),name:n,number:nu.value.trim(),colMap:null});save();renderAll()}}))));
   /* 수동 추가 */
