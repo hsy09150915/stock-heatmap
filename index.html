@@ -249,6 +249,7 @@ function add(e,c){
 var nf=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:0});
 function money(v){return nf.format(Math.round(v))}
 function smoney(v){return (v>0?'+':v<0?'-':'')+nf.format(Math.abs(Math.round(v)))}
+function sh(x){return (x*100).toFixed(1)+'%'}
 function pct(r){return (r>0?'+':r<0?'-':'')+Math.abs(r*100).toFixed(1)+'%'}
 function uid(){return Math.random().toString(36).slice(2,10)}
 function digits(s){return String(s||'').replace(/\D/g,'')}
@@ -318,6 +319,8 @@ function buildItems(){
   var basis=S.settings.basis;
   arr.forEach(function(m){m.buy=m.cost/m.qty;m.val=m.price?m.qty*m.price.v:null;m.ret=m.price?(m.price.v-m.buy)/m.buy:null;m.pl=m.price?m.val-m.cost:null;
     m.size=basis==='cur'&&m.val!=null?m.val:m.cost;m.na=m.price==null;m.nacct=Object.keys(m.accts).length});
+  var tc=0,tv=0;arr.forEach(function(m){tc+=m.cost;tv+=(m.val!=null?m.val:m.cost)});
+  arr.forEach(function(m){m.shareBuy=tc?m.cost/tc:0;m.shareCur=tv?(m.val!=null?m.val:m.cost)/tv:0;m.share=basis==='cur'?m.shareCur:m.shareBuy});
   arr.sort(function(a,b){return b.size-a.size});
   return arr;
 }
@@ -343,7 +346,7 @@ function tipShow(it,x,y){
   tip.textContent='';
   tip.appendChild(h('div',{class:'ts',text:it.name+' ('+it.code+')'}));
   tip.appendChild(h('div',{class:'tv',text:it.ret==null?'종가 없음':pct(it.ret)+'  ('+smoney(it.pl)+'원)'}));
-  [['수량',money(it.qty)+'주'],['매수단가',money(it.buy)+'원'],['현재가',it.price?money(it.price.v)+'원':'-'],['매수금액',money(it.cost)+'원'],['평가금액',it.val!=null?money(it.val)+'원':'-']]
+  [['비중','매수 '+sh(it.shareBuy)+' · 평가 '+sh(it.shareCur)],['수량',money(it.qty)+'주'],['매수단가',money(it.buy)+'원'],['현재가',it.price?money(it.price.v)+'원':'-'],['매수금액',money(it.cost)+'원'],['평가금액',it.val!=null?money(it.val)+'원':'-']]
    .forEach(function(r){tip.appendChild(h('div',{class:'ts',text:r[0]+' '+r[1]}))});
   tip.style.display='block';
   var w=tip.offsetWidth,hh=tip.offsetHeight;
@@ -417,7 +420,8 @@ function drawMap(){
     var b=h('button',{type:'button',class:'tile','aria-label':it.name+' '+(it.ret==null?'종가 없음':'수익률 '+pct(it.ret))+' 매수금액 '+money(it.cost)+'원',
       style:'left:'+gx+'px;top:'+gy+'px;width:'+gw+'px;height:'+gh+'px;background:'+bg+';color:'+ink});
     if(gw>=46&&gh>=28){b.appendChild(h('span',{class:'tn',text:it.name}));
-      if(gh>=48)b.appendChild(h('span',{class:'tp',text:it.ret==null?'종가 없음':pct(it.ret)}));}
+      if(gh>=48)b.appendChild(h('span',{class:'tp',text:it.ret==null?'종가 없음':pct(it.ret)}));
+      if(gh>=66)b.appendChild(h('span',{class:'tp',text:'비중 '+sh(it.share)}));}
     b.addEventListener('pointermove',function(e){tipShow(it,e.clientX,e.clientY)});
     b.addEventListener('pointerleave',tipHide);
     b.addEventListener('focus',function(){var q=b.getBoundingClientRect();tipShow(it,q.left+q.width/2,q.top+q.height/2)});
@@ -430,10 +434,10 @@ function tableCard(its){
   var rows=its.map(function(i){var c=i.pl>0?'pos':i.pl<0?'neg':'';
     return h('tr',null,h('td',{text:i.name+(i.nacct>1?' ('+i.nacct+'개 계좌)':'')}),h('td',{class:'num',text:money(i.qty)}),h('td',{class:'num',text:money(i.buy)}),
       h('td',{class:'num',text:i.price?money(i.price.v)+(i.price.src==='cap'?' *':''):'-'}),h('td',{class:'num',text:money(i.cost)}),
-      h('td',{class:'num',text:i.val!=null?money(i.val):'-'}),h('td',{class:'num '+c,text:i.pl!=null?smoney(i.pl):'-'}),h('td',{class:'num '+c,text:i.ret!=null?pct(i.ret):'-'}))});
+      h('td',{class:'num',text:i.val!=null?money(i.val):'-'}),h('td',{class:'num '+c,text:i.pl!=null?smoney(i.pl):'-'}),h('td',{class:'num '+c,text:i.ret!=null?pct(i.ret):'-'}),h('td',{class:'num',text:sh(i.shareBuy)}),h('td',{class:'num',text:sh(i.shareCur)}))});
   return h('div',{class:'card'},h('h2',{text:'종목 표 (히트맵과 같은 내용)'}),
-    h('div',{class:'scroll'},h('table',null,h('thead',null,h('tr',null,['종목','수량','매수단가','현재가','매수금액','평가금액','평가손익','수익률'].map(function(t){return h('th',{text:t})}))),h('tbody',null,rows))),
-    h('div',{class:'note',style:'margin-top:8px',text:'* 표시는 종가 파일이 아니라 캡처에서 읽은 현재가예요.'}));
+    h('div',{class:'scroll'},h('table',null,h('thead',null,h('tr',null,['종목','수량','매수단가','현재가','매수금액','평가금액','평가손익','수익률','매수 비중','평가 비중'].map(function(t){return h('th',{text:t})}))),h('tbody',null,rows))),
+    h('div',{class:'note',style:'margin-top:8px',text:'비중은 지금 보기(전체 또는 선택한 계좌)의 합계 대비 비율이에요. 평가 비중은 현재가×수량 기준이라 매수 비중과 달라져요. * 표시는 종가 파일이 아니라 캡처에서 읽은 현재가예요.'}));
 }
 function download(name,text){var a=h('a',{href:URL.createObjectURL(new Blob([text],{type:'application/json'})),download:name});document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}
 function exportCodes(){var c=[],s={};S.holdings.forEach(function(x){if(!s[x.code]){s[x.code]=1;c.push(x.code)}});download('codes.json',JSON.stringify(c))}
@@ -542,10 +546,16 @@ function processFile(file,box){
     return fillQty(wk,img,pre,res).then(function(){return finish(cs,res,words)});
   });
 }
+var cards=[],groups={};
+function refreshCards(){cards.forEach(function(c){if(!c.done)drawCard(c)})}
 function finish(cs,res,words){
     var m=res.account&&S.accounts.filter(function(a){return a.number&&digits(a.number)===digits(res.account)})[0];
+    var key=digits(res.account),pend=Object.keys(groups).filter(function(k){return !groups[k].id}).length;
+    cs.group=(key&&groups[key])||{name:'계좌 '+(S.accounts.length+pend+1),num:res.account||'',id:null};
+    if(key&&!groups[key])groups[key]=cs.group;
+    cards.push(cs);
     if(m){cs.accSel=m.id;cs.colMap=m.colMap||null;if(cs.colMap&&!res.stacked)res=parseCapture(words,{width:cs.W,colMap:cs.colMap})}
-    window.__hmLast=cs;cs.res=res;cs.accNum=res.account||'';cs.accName='계좌 '+(S.accounts.length+1);
+    window.__hmLast=cs;cs.res=res;
     cs.rows=res.rows.map(function(r){return {id:uid(),qty:r.qty,buy:r.buy,cur:r.cur,box:r.box,name:'',code:null}});
     drawCard(cs);
 }
@@ -558,12 +568,18 @@ function drawCard(cs){
   if(cs.done){box.appendChild(h('div',{class:'picked',text:'✓ 반영 완료'}));box.appendChild(h('button',{class:'btn',type:'button',text:'히트맵 보기',onclick:function(){showTab('heat')}}));return}
   var res=cs.res;
   /* 계좌 */
+  if(cs.accSel==='new'&&cs.group.id)cs.accSel=cs.group.id;
   var sel=h('select',{'aria-label':'반영할 계좌',onchange:function(){cs.accSel=this.value;drawCard(cs)}},[h('option',{value:'new',text:'새 계좌 만들기'})].concat(S.accounts.map(function(a){return h('option',{value:a.id,text:a.name+(a.number?' ('+mask(a.number)+')':'')})})));
   sel.value=cs.accSel;
   var accRow=h('div',{class:'row'},h('span',{class:'lbl',text:'계좌'}),sel);
   if(cs.accSel==='new'){
-    accRow.appendChild(h('input',{type:'text',value:cs.accName,'aria-label':'새 계좌 이름',placeholder:'계좌 이름 (예: 일반계좌)',oninput:function(){cs.accName=this.value}}));
-    accRow.appendChild(h('input',{type:'text',value:cs.accNum,'aria-label':'계좌번호',placeholder:'계좌번호(선택)',oninput:function(){cs.accNum=this.value}}));
+    accRow.appendChild(h('input',{type:'text',value:cs.group.name,'aria-label':'새 계좌 이름',placeholder:'계좌 이름 (예: 일반계좌)',oninput:function(){cs.group.name=this.value},onchange:refreshCards}));
+    accRow.appendChild(h('input',{type:'text',value:cs.group.num,'aria-label':'계좌번호',placeholder:'계좌번호(선택)',oninput:function(){cs.group.num=this.value}}));
+    var same=cards.filter(function(c){return c!==cs&&!c.done&&c.group===cs.group}).length;
+    if(same)accRow.appendChild(h('span',{class:'note',text:'같은 계좌번호 캡처 '+(same+1)+'장이 이 이름 하나로 합쳐져요'}));
+  }else{
+    var ac=acct(cs.accSel);
+    if(ac)accRow.appendChild(h('input',{type:'text',value:ac.name,'aria-label':'계좌 이름 수정',oninput:function(){ac.name=this.value},onchange:function(){ac.name=this.value.trim()||ac.name;save();refreshCards();renderHeat()}}));
   }
   box.appendChild(accRow);
   box.appendChild(h('div',{class:'note',style:'margin:6px 0',text:res.account?'캡처에서 계좌번호 '+mask(res.account)+' 을(를) 읽었어요.':'계좌번호를 찾지 못했어요. 계좌를 직접 고르거나 입력해 주세요.'}));
@@ -602,7 +618,7 @@ function saveCapture(cs){
   rows.forEach(function(r){if(!r.code||!(r.qty>0)||!(r.buy>0))bad++});
   if(!rows.length)return '반영할 행이 없어요.';
   if(bad)return '종목을 고르지 않았거나 수량·매수단가가 비어 있는 행이 '+bad+'개 있어요. 채우거나 삭제해 주세요.';
-  var a;if(cs.accSel==='new'){a={id:uid(),name:(cs.accName||'').trim()||'계좌 '+(S.accounts.length+1),number:(cs.accNum||'').trim(),colMap:null};S.accounts.push(a)}else a=acct(cs.accSel);
+  var a;if(cs.accSel==='new'){a=cs.group.id&&acct(cs.group.id);if(!a){a={id:uid(),name:(cs.group.name||'').trim()||'계좌 '+(S.accounts.length+1),number:(cs.group.num||'').trim(),colMap:null};S.accounts.push(a);cs.group.id=a.id}}else a=acct(cs.accSel);
   if(!a)return '계좌를 찾을 수 없어요.';
   if(!cs.res.stacked&&cs.res.ncols>=2)a.colMap=cs.res.roles||cs.colMap;
   if(cs.replaceAll)S.holdings=S.holdings.filter(function(x){return x.accountId!==a.id});
@@ -614,7 +630,7 @@ function saveCapture(cs){
     if(!f){f={id:uid(),accountId:a.id,code:r.code};S.holdings.push(f)}
     f.name=s?s.name:r.name;f.qty=r.qty;f.buy=r.buy;f.cur=r.cur>0?r.cur:0;seen[r.code]=f;
   });
-  save();cs.done=true;drawCard(cs);renderAll();return '';
+  save();cs.done=true;cs.accSel=a.id;drawCard(cs);refreshCards();renderAll();return '';
 }
 
 /* ========== 종목 관리 ========== */
