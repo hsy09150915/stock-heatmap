@@ -501,8 +501,8 @@ function preprocess(img){
   x.putImageData(d,0,0);return {canvas:c,scale:sc,inverted:inv};
 }
 
-function cropDigits(img,b,inv){
-  var sc=3,pad=24,x0=clamp(Math.round(b.x0),0,img.naturalWidth-1),y0=clamp(Math.round(b.y0),0,img.naturalHeight-1),
+function cropDigits(img,b,inv,scale){
+  var sc=scale||3,pad=24,x0=clamp(Math.round(b.x0),0,img.naturalWidth-1),y0=clamp(Math.round(b.y0),0,img.naturalHeight-1),
     w=Math.max(1,Math.min(img.naturalWidth,Math.round(b.x1))-x0),hh=Math.max(1,Math.min(img.naturalHeight,Math.round(b.y1))-y0);
   var c=h('canvas');c.width=w*sc+pad*2;c.height=hh*sc+pad*2;var x=c.getContext('2d',{willReadFrequently:true});
   x.fillStyle=inv?'#000':'#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,x0,y0,w,hh,pad,pad,w*sc,hh*sc);
@@ -517,6 +517,27 @@ function fillQty(w,img,pre,res){
     var m=String(rr.data.text||'').replace(/\s/g,'').match(/\d[\d,]*/);var v=m?parseNum(m[0]):null;if(v>0)r.qty=v})});
   return ch.then(function(){return w.setParameters({tessedit_char_whitelist:'',tessedit_pageseg_mode:'11'})},function(){return w.setParameters({tessedit_char_whitelist:'',tessedit_pageseg_mode:'11'})});
 }
+var korP=null;
+function getKor(){if(korP)return korP;
+  korP=loadTess().then(function(T){return T.createWorker('kor',1,{langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/kor/4.0.0_best_int'})}).then(function(w){return w.setParameters({tessedit_pageseg_mode:'6'}).then(function(){return w})});
+  korP.catch(function(){korP=null});return korP}
+function nameCands(txt){var L=String(txt||'').split('\n').map(function(s){return s.replace(/\s+/g,'')}).filter(function(s){return s.length>=2}),o=L.slice();
+  for(var i=0;i<L.length-1;i++)o.push(L[i]+L[i+1]);return o}
+function matchName(texts){
+  for(var i=0;i<texts.length;i++){var n=norm(texts[i]),ex=LIST.filter(function(s){return s.norm===n});
+    if(ex.length){var p=ex.filter(function(s){return !s.etf})[0]||ex[0];return {code:p.code,name:p.name,fuzzy:false}}}
+  for(var j=0;j<texts.length;j++){var m=texts[j].match(/[\uAC00-\uD7A3]/);if(!m)continue;var k=norm(texts[j].slice(m.index));if(k.length<3)continue;
+    var c=LIST.filter(function(s){return s.norm.length>k.length&&s.norm.slice(-k.length)===k});
+    if(c.length===1)return {code:c[0].code,name:c[0].name,fuzzy:true}}
+  return null}
+function readNames(img,pre,res){
+  var rows=res.rows.filter(function(r){return r.box});if(!rows.length)return Promise.resolve();
+  return getKor().then(function(w){
+    var chain=Promise.resolve();
+    rows.forEach(function(r){chain=chain.then(function(){var texts=[],hint='',p=Promise.resolve();
+      [1,2,4].forEach(function(s){p=p.then(function(){return w.recognize(cropDigits(img,r.box,pre.inverted,s))}).then(function(rr){var c=nameCands(rr.data.text);if(!hint&&c[0])hint=c[0];texts=texts.concat(c)})});
+      return p.then(function(){var m=matchName(texts);if(m){r.name=m.name;r.code=m.code;r.fuzzy=m.fuzzy}})})});
+    return chain}).catch(function(){})}
 function renderCapture(){
   var p=$('#pane-cap');p.textContent='';
   var drop=h('div',{class:'drop',id:'drop'},h('p',{text:'증권앱 잔고 화면 캡처를 여기로 끌어놓거나 선택하세요 (여러 장 가능)'}),
@@ -545,7 +566,7 @@ function processFile(file,box){
     var cs={file:file,words:words,W:img.naturalWidth,src:src,accSel:'new',accName:'',accNum:'',colMap:null,replaceAll:false,done:false,box:box};
     var res=parseCapture(words,{width:cs.W});
     st.textContent='빠진 숫자 확인 중…';
-    return fillQty(wk,img,pre,res).then(function(){return finish(cs,res,words)});
+    return fillQty(wk,img,pre,res).then(function(){st.textContent='종목명 읽는 중… (처음 한 번은 한글 데이터 1.5MB를 내려받아요)';return readNames(img,pre,res)}).then(function(){return finish(cs,res,words)});
   });
 }
 var cards=[],groups={};
@@ -567,12 +588,13 @@ function finish(cs,res,words){
     cards.push(cs);
     if(m){cs.accSel=m.id;cs.colMap=m.colMap||null;if(cs.colMap&&!res.stacked)res=parseCapture(words,{width:cs.W,colMap:cs.colMap})}
     window.__hmLast=cs;cs.res=res;
-    cs.rows=res.rows.map(function(r){return {id:uid(),qty:r.qty,buy:r.buy,cur:r.cur,box:r.box,name:'',code:null}});
+    cs.rows=res.rows.map(function(r){return {id:uid(),qty:r.qty,buy:r.buy,cur:r.cur,box:r.box,name:r.name||'',code:r.code||null,fuzzy:!!r.fuzzy}});
     drawCard(cs);
 }
 function cropCanvas(cs,b){
   var x0=clamp(Math.round(b.x0),0,cs.src.width-1),y0=clamp(Math.round(b.y0),0,cs.src.height-1),w=Math.max(1,Math.min(cs.src.width,Math.round(b.x1))-x0),hh=Math.max(1,Math.min(cs.src.height,Math.round(b.y1))-y0);
   var c=h('canvas',{class:'crop','aria-label':'캡처에서 잘라낸 종목 영역'});c.width=w;c.height=hh;c.getContext('2d').drawImage(cs.src,x0,y0,w,hh,0,0,w,hh);return c}
+function this_fz(r){return document.getElementById('fz'+r.id)}
 function drawCard(cs){
   var box=cs.box;box.textContent='';
   box.appendChild(h('h2',{text:cs.file.name}));
@@ -610,7 +632,7 @@ function drawCard(cs){
       onchange:function(){var v=toNum(this.value);r[key]=v;this.value=v==null?'':nf.format(v)}})}
     tb.appendChild(h('tr',{class:'cap-row'},
       h('td',null,cs.src?cropCanvas(cs,r.box):null),
-      h('td',{style:'min-width:200px;text-align:left'},picker({name:r.name,code:r.code},function(c,n){r.code=c;r.name=n})),
+      h('td',{style:'min-width:200px;text-align:left'},picker({name:r.name,code:r.code},function(c,n){r.code=c;r.name=n;r.fuzzy=false;var fz=document.getElementById('fz'+r.id);if(fz)fz.remove()}),r.fuzzy&&r.code?h('div',{class:'warn note',id:'fz'+r.id,text:'근사 일치 — 캡처 종목명과 맞는지 확인하세요'}):null),
       h('td',null,numInp('qty','수량')),h('td',null,numInp('buy','매수단가')),h('td',null,numInp('cur','현재가(캡처)')),
       h('td',null,h('button',{class:'btn danger',type:'button',text:'삭제','aria-label':'이 행 삭제',onclick:function(){cs.rows=cs.rows.filter(function(x){return x!==r});drawCard(cs)}}))));
   });
@@ -623,8 +645,8 @@ function drawCard(cs){
     h('button',{class:'btn primary',type:'button',text:'이 계좌에 반영',onclick:function(){var e=saveCapture(cs);if(e)msg.textContent=e}})));
   box.appendChild(msg);
 }
-function reparse(cs){var res=parseCapture(cs.words,{width:cs.W,colMap:cs.colMap});cs.res=res;
-  cs.rows=res.rows.map(function(r){return {id:uid(),qty:r.qty,buy:r.buy,cur:r.cur,box:r.box,name:'',code:null}});drawCard(cs)}
+function reparse(cs){var old=cs.rows,res=parseCapture(cs.words,{width:cs.W,colMap:cs.colMap});cs.res=res;
+  cs.rows=res.rows.map(function(r,i){var o=old[i]||{};return {id:uid(),qty:r.qty,buy:r.buy,cur:r.cur,box:r.box,name:o.name||'',code:o.code||null,hint:o.hint||'',fuzzy:!!o.fuzzy}});drawCard(cs)}
 function saveCapture(cs){
   var bad=0,rows=cs.rows;
   rows.forEach(function(r){if(!r.code||!(r.qty>0)||!(r.buy>0))bad++});
