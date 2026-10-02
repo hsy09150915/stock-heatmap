@@ -549,6 +549,15 @@ function processFile(file,box){
   });
 }
 var cards=[],groups={};
+function dupText(cs){var k=norm(cs.group.name||'');return k&&S.accounts.some(function(x){return gkey(x)===k})?'같은 이름의 계좌가 이미 있어서 그 계좌에 반영돼요(같은 종목은 덮어쓰기)':''}
+function syncNames(src){ /* 입력 칸이 사라지지 않도록 다시 그리지 않고 값만 맞춘다 */
+  cards.forEach(function(c){if(c.done||!c.box)return;
+    var ni=c.box.querySelector('input[aria-label="새 계좌 이름"]');if(ni&&c.group===src.group&&c!==src)ni.value=src.group.name;
+    var dn=c.box.querySelector('.dupnote');if(dn&&c.accSel==='new')dn.textContent=dupText(c);
+    var sl=c.box.querySelector('select[aria-label="반영할 계좌"]');
+    if(sl)Array.prototype.forEach.call(sl.options,function(o){var ac=acct(o.value);if(ac)o.textContent=ac.name+(ac.number?' ('+mask(ac.number)+')':'')});
+    var ri=c.box.querySelector('input[aria-label="계좌 이름 수정"]');var ac2=acct(c.accSel);if(ri&&ac2&&c!==src)ri.value=ac2.name});
+  renderHeat()}
 function refreshCards(){cards.forEach(function(c){if(!c.done)drawCard(c)})}
 function finish(cs,res,words){
     var m=res.account&&S.accounts.filter(function(a){return a.number&&digits(a.number)===digits(res.account)})[0];
@@ -575,13 +584,14 @@ function drawCard(cs){
   sel.value=cs.accSel;
   var accRow=h('div',{class:'row'},h('span',{class:'lbl',text:'계좌'}),sel);
   if(cs.accSel==='new'){
-    accRow.appendChild(h('input',{type:'text',value:cs.group.name,'aria-label':'새 계좌 이름',placeholder:'계좌 이름 (예: 일반계좌)',oninput:function(){cs.group.name=this.value},onchange:refreshCards}));
+    accRow.appendChild(h('input',{type:'text',value:cs.group.name,'aria-label':'새 계좌 이름',placeholder:'계좌 이름 (예: 일반계좌)',oninput:function(){cs.group.name=this.value;var dn=cs.box.querySelector('.dupnote');if(dn)dn.textContent=dupText(cs)},onchange:function(){syncNames(cs)}}));
     accRow.appendChild(h('input',{type:'text',value:cs.group.num,'aria-label':'계좌번호',placeholder:'계좌번호(선택)',oninput:function(){cs.group.num=this.value}}));
+    accRow.appendChild(h('span',{class:'note dupnote',text:dupText(cs)}));
     var same=cards.filter(function(c){return c!==cs&&!c.done&&c.group===cs.group}).length;
     if(same)accRow.appendChild(h('span',{class:'note',text:'같은 계좌번호 캡처 '+(same+1)+'장이 이 이름 하나로 합쳐져요'}));
   }else{
     var ac=acct(cs.accSel);
-    if(ac)accRow.appendChild(h('input',{type:'text',value:ac.name,'aria-label':'계좌 이름 수정',oninput:function(){ac.name=this.value},onchange:function(){ac.name=this.value.trim()||ac.name;save();refreshCards();renderHeat()}}));
+    if(ac)accRow.appendChild(h('input',{type:'text',value:ac.name,'aria-label':'계좌 이름 수정',oninput:function(){ac.name=this.value},onchange:function(){ac.name=this.value.trim()||ac.name;this.value=ac.name;save();syncNames(cs)}}));
   }
   box.appendChild(accRow);
   box.appendChild(h('div',{class:'note',style:'margin:6px 0',text:res.account?'캡처에서 계좌번호 '+mask(res.account)+' 을(를) 읽었어요.':'계좌번호를 찾지 못했어요. 계좌를 직접 고르거나 입력해 주세요.'}));
@@ -620,7 +630,8 @@ function saveCapture(cs){
   rows.forEach(function(r){if(!r.code||!(r.qty>0)||!(r.buy>0))bad++});
   if(!rows.length)return '반영할 행이 없어요.';
   if(bad)return '종목을 고르지 않았거나 수량·매수단가가 비어 있는 행이 '+bad+'개 있어요. 채우거나 삭제해 주세요.';
-  var a;if(cs.accSel==='new'){a=cs.group.id&&acct(cs.group.id);if(!a){a={id:uid(),name:(cs.group.name||'').trim()||'계좌 '+(S.accounts.length+1),number:(cs.group.num||'').trim(),colMap:null};S.accounts.push(a);cs.group.id=a.id}}else a=acct(cs.accSel);
+  var a;if(cs.accSel==='new'){a=cs.group.id&&acct(cs.group.id);if(!a){var nk=norm(cs.group.name||'');a=nk?S.accounts.filter(function(x){return gkey(x)===nk})[0]:null;if(a){if(!a.number&&cs.group.num)a.number=cs.group.num;cs.group.id=a.id}}
+    if(!a){a={id:uid(),name:(cs.group.name||'').trim()||'계좌 '+(S.accounts.length+1),number:(cs.group.num||'').trim(),colMap:null};S.accounts.push(a);cs.group.id=a.id}}else a=acct(cs.accSel);
   if(!a)return '계좌를 찾을 수 없어요.';
   if(!cs.res.stacked&&cs.res.ncols>=2)a.colMap=cs.res.roles||cs.colMap;
   if(cs.replaceAll)S.holdings=S.holdings.filter(function(x){return x.accountId!==a.id});
@@ -644,6 +655,19 @@ function addSample(){
   put(a2,'삼성전자',30,60000);put(a2,'KODEX 200',50,35000,38200);put(a2,'TIGER 미국S&P500',80,17000,21500);
   save();
 }
+function dupGroups(){var m={};S.accounts.forEach(function(x){var d=digits(x.number);if(d)(m[d]=m[d]||[]).push(x)});
+  return Object.keys(m).map(function(k){return m[k]}).filter(function(g){return g.length>1})}
+function mergeSameNumber(){
+  dupGroups().forEach(function(g){var t=g[0];
+    g.slice(1).forEach(function(o){
+      S.holdings.filter(function(x){return x.accountId===o.id}).forEach(function(x){
+        var ex=S.holdings.filter(function(y){return y!==x&&y.accountId===t.id&&y.code===x.code})[0];
+        if(ex){ex.qty=x.qty;ex.buy=x.buy;ex.cur=x.cur;S.holdings=S.holdings.filter(function(y){return y!==x})}else x.accountId=t.id});
+      if(!t.colMap&&o.colMap)t.colMap=o.colMap;
+      S.accounts=S.accounts.filter(function(y){return y!==o});
+      if(S.settings.view===o.id)S.settings.view=t.id;
+    })});
+  save()}
 function renderManage(){
   var p=$('#pane-man');p.textContent='';
   /* 계좌 */
@@ -656,6 +680,11 @@ function renderManage(){
         h('button',{class:'btn danger',type:'button',text:'계좌 삭제',onclick:function(){if(confirm('"'+a.name+'" 계좌와 종목을 모두 지울까요?')){S.holdings=S.holdings.filter(function(x){return x.accountId!==a.id});S.accounts=S.accounts.filter(function(x){return x!==a});save();renderAll()}}}))))});
   var nn=h('input',{type:'text',placeholder:'새 계좌 이름','aria-label':'새 계좌 이름'}),nu=h('input',{type:'text',placeholder:'계좌번호(선택)','aria-label':'새 계좌번호'});
   p.appendChild(h('div',{class:'card'},h('h2',{text:'계좌'}),h('p',{class:'note',text:'이름이 같은 계좌는 히트맵에서 하나로 합쳐서 보여줘요. 같은 종목은 수량을 더하고 매수단가는 평균으로 계산해요.'}),
+    (function(){var g=dupGroups();if(!g.length)return null;var n=g.reduce(function(s,x){return s+x.length},0);
+      return h('div',{class:'row',style:'margin:8px 0;padding:10px;border:1px solid var(--warn);border-radius:8px'},
+        h('span',{class:'warn',text:'계좌번호가 같은 계좌가 '+n+'개로 나뉘어 있어요. 합치지 않으면 겹친 종목이 두 번 더해질 수 있어요.'}),
+        h('button',{class:'btn primary',type:'button',text:'같은 계좌번호 계좌 하나로 합치기',onclick:function(){
+          if(confirm('계좌번호가 같은 계좌 '+n+'개를 '+g.length+'개로 합칠까요?\n같은 종목은 더하지 않고, 나중에 올린 값으로 덮어써요.')){mergeSameNumber();renderAll()}}}))})(),
     S.accounts.length?h('div',{class:'scroll'},h('table',null,h('thead',null,h('tr',null,['이름','번호','종목 수',''].map(function(t){return h('th',{text:t})}))),at)):h('div',{class:'note',text:'아직 계좌가 없어요. 캡처를 읽으면 자동으로 만들어져요.'}),
     h('div',{class:'row',style:'margin-top:10px'},nn,nu,h('button',{class:'btn',type:'button',text:'계좌 추가',onclick:function(){var n=nn.value.trim();if(!n)return;S.accounts.push({id:uid(),name:n,number:nu.value.trim(),colMap:null});save();renderAll()}}))));
   /* 수동 추가 */
